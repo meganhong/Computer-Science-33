@@ -1,0 +1,9 @@
+2.72
+
+A) maxbytes is signed, but sizeof(val) is unsigned, so the result of maxbytes-sizeof(val) would always result in a positive integer since the program would treat both as unsigned.
+
+B) void copy_int(int val, void *buf, int maxbytes)
+{
+	if (maxbytes >= 0 && maxbytes >= sizeof(val))	
+		memcpy(but, (void *) &val, sizeof(val));
+}
