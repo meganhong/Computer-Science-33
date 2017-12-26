@@ -1,0 +1,6 @@
+12.17) 
+A) Since the Sleep(1) function makes the thread sleep for 1 second, this is enough time for the computer to switch context and run the main() function, which exits before the thread routine finishes sleeping. 
+B) Pthread_join(tid, NULL) since this will call the thread routine function and will terminate the thread after. It suspends the execution of the current thread until the target thread finishes, thus correctly joining the two threads. Pthread_exit(void *thread_return) also works because it waits for all other peer threads to terminate before terminating the main thread.
+
+12.25) 
+The function echo_cnt is thread-safe because it only references static variables, so it will always produce correct results with called from multiple concurrent threads. The mutex also protects access to byte_cnt. It is not reentrant because the static variables are different when echo_cnt is called by different functions, so they are shared data. The mutex implies that the thread will be blocked at some point when called by multiple threads.
