@@ -1,0 +1,20 @@
+3.64
+A) &D[i][j][k] = X + L(S*T*i + T*i + k)
+B) 1 store_ele:
+2 rax = 3j
+3 rax = 4(3j) + j = 13j
+4 rsi = i
+5 rsi = i * 2^6 = 64i
+6 rdi = 65i
+7 rdi = 65i + 13j
+8 rdx = 65i + 13j + k
+9 rax = A + 8(65i + 13j + k) 
+
+S*T = 65
+T = 13
+S = 5
+3640 = 8 * R * S * T
+R * S * T = 455
+R = 7
+
+(R, S, T) = (7, 5, 13)
