@@ -1,0 +1,15 @@
+2.82
+
+A) The expression does not always yield 1. When x and y are both 0, the expression would yield 0. Also, when x = MIN_INT, -x would still be equal to MIN_INT, so -x would be less than -y.
+
+B) The expression always yields 1. Since left shifting k is equal to multiplying 2^k, the left side can be rewritten as (x+y) * 16 + y - x, = 16x + 16y + y - x = 17y + 15x, which is equal to the right side.
+
+C) The expression always yields 1. The left side can be rewritten as -1 - x + (-1 - y) + 1 since ~x = -1 -x. So this is equal to -1 - x - y = - 1 - (x+y), which is ~(x+y), the right hand side.
+
+D) The expression is the same on both sides because the right hand side is subtracting y-x but taking the negative of the unsigned value, which would always be equal to ux-uy since subtraction is the same for signed and unsigned values. Thus, the expression always yields 1.
+
+E) The expression always yields 1. If the left 2 digits are zero, the answer would remain the same for a logical right shift. In the case of an arithmetic shift, the result would be the same if the left 2 digits are one. All other cases would result in a smaller number because the most significant digits are dropped and replaced with 0 or 1s.
+
+F) The expression always yields 1. For x>>1, an arithmetic right shift is performed since x is signed, but ux>>1 uses a logical shift since ux is unsigned. -1 << 33 results in 100…0(33 zeros) So ux & (-1 << 33) is 100…0 if the leading digit in ux is 1 and 00..00 otherwise, which would always be equal to x >> 1.
+
+G) The expression yields 1 only when x is positive. When x is negative, the expression does not hold because -1 = 1111…1 so x%128 would return -1, which would not be equal to x&127, which would yield 0000…1111. 
