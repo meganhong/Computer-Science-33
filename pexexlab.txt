@@ -1,0 +1,23 @@
+First, I logged into the Linux server (lnxsrv09) and then I used the following command to access and examine the instructions.
+gdb ~eggert/bin64/bin/emacs-25.2
+
+Then, I set a breakpoint at Ftimes, since this function is used to multiply numbers. This allows me to trace through the machine code for the command emacs -Q -batch -eval '(print (* 1250284240 -1844255039))’ and received the following message: Breakpoint 1 at 0x544fb0: file data.c, line 2815.
+(gdb) break Ftimes
+
+I used the following command to print out assembly instructions in order.
+(gdb) set disassemble-next-line on
+
+I ran the line of code I wanted to trace through with the following command, but I did not receive any results as it says “No executable file specified”
+(gdb) r -batch -eval '(print (* 1250284240 -1844255039))'
+
+Then, I stepped into the machine code with the following command.
+(gdb) si
+
+I need to see the values of specific registers, so I used the following command to list them.
+(gdb) info registers
+
+To analyze the entire Ftimes function, I just used ‘si’ to step into the next set of assembly instructions. 
+
+For the next part of the lab, I analyzed integer overflow handling with 3 different optimizations that were given in the instructions: (1) with -O2, (2) with -O2 -fwrapv, (3) with -O2 -fsanitize=undefined. I used -S to view the assembly language.
+
+In the third part of the lab, I use the source code (gdb) ~eggert/src/emacs-25.2/ to analyze where the most-positive-fixnum and the output comes from. I found the definitions in data.c and lisp.h. I also used the above instructions to analyze the error in number 5 and the source code to find the corresponding data in time_rz.c.

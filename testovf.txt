@@ -1,0 +1,42 @@
+compiled with -O2:
+
+xorl    %eax, %eax
+ret
+
+compiled with -O2 -fwrapv:
+
+movabsq $9223372036854775807, %rax
+addq    %rdi, %rax
+cmpq    %rdi, %rax
+setl    %al
+ret
+
+compiled with -O2 -fsanitize=undefined:
+
+.LFB0:
+        pushq   %rbp
+        pushq   %rbx
+        movabsq $9223372036854775807, %rdx
+        movq    %rdi, %rbp
+        movq    %rdi, %rbx
+        subq    $8, %rsp
+        addq    %rdx, %rbp
+        jo      .L6
+.L2:
+        cmpq    %rbx, %rbp
+	setl    %al
+        addq    $8, %rsp
+        popq    %rbx
+        popq    %rbp
+        ret
+.L6:
+        movq    %rdi, %rsi
+        movl    $.Lubsan_data0, %edi
+        call    __ubsan_handle_add_overflow
+        jmp     .L2
+
+In the -O2 optimization, the compiler sets %eax to 0 since it recognizes that the function is comparing the sum of n and a large number 9223372036854775807 to n. It ignores the overflow case and sets the result to false, or 0, since it assumes that a number added onto a big positive number will result in a greater value than itself. It also obtains 0 in the fastest way possible by using xor on its own value. This setting does not check for overflow.
+
+In the -O2 -fwrapv optimization, the compiler adds the two values together by first storing the large number into a register and adding it onto n. It compares this value to n and returns the value of the comparison. The fwrapv ensures that signed arithmetic will wrap around during overflow. This will return true since the comparison will result in true, or 1, since the number overflows and becomes negative when added to n. 
+
+In the -O2 -fsanitize=undefined optimization, the value of n and 9223372036854775807 are pushed into registers on the stack. They are then added together, but it checks for overflow and jumps to .L6 if the overflow flag, OF, is set to 1. .L6 contains a call statement that handles addition overflow. If the function overflows, it will jump to .L2, where the compiler compares the two values and either wraps or traps the value of adding the two numbers depending on the compiler’s settings. This optimization setting checks for overflow with an extra function.

@@ -1,0 +1,82 @@
+1. The trace did not produce the correct mathematical result due to the line: 
+544dfc	4a 8d 04 a5 02 00 00 00	lea 0x2(,%r12,4),%rax
+The lea instruction multiples %r12 by 4, which should have multiplied 0xdfffffffdceaced0 by 4, but this number overflows since it is not in the range of a long. It produces ~6.47 * 10^19, which is greater than the largest value allowed for a long, 2^64-1. This results in overflow, which is not handled correctly through emacs.
+
+2. In the Emacs source code in data.c, we can find that the most negative number in the following lines:
+DEFVAR_LISP ("most-negative-fixnum", Vmost_negative_fixnum,
+	       doc: /* The smallest value that is representable in a Lisp integer.  */);
+  Vmost_negative_fixnum = make_number (MOST_NEGATIVE_FIXNUM);
+  XSYMBOL (intern_c_string ("most-negative-fixnum"))->constant = 1;
+
+Looking in the lisp.h folder, we find that MOST_NEGATIVE_FIXNUM is defined in the line: 
+#define MOST_NEGATIVE_FIXNUM (-1 - MOST_POSITIVE_FIXNUM)
+And MOST_POSITIVE_FIXNUM is defined as :
+#define MOST_POSITIVE_FIXNUM (EMACS_INT_MAX >> INTTYPEBITS)
+
+We can also see that EMACS_INT_MAX is equal to INT_MAX, which is equal to 2^63-1 in x86-64, or 9.223372e+18 due to the following line. 
+#  define EMACS_INT_MAX INT_MAX
+
+This value is then shifted over by INTTYPEBITS, which is defined as INTTYPEBITS = GCTYPEBITS - 1 and equal to 2. By shifting over INT_MAX 2 to the right, we divide by 2^2 and receive the value 2305843009213693951. To find MOST_NEGATIVE_FIXNUM we just use the previous define statement, or -1 - 2305843009213693951, which results in the number we see: -2305843009213693952.
+
+3. The command is multiplying four “most-positive-fixnum”s together, and from question 2, we can see that most-positive-fixnum is equal to 2^61-1. By multiplying four of these together, we are essentially taking (2^61-1)^4, and all the terms except for (2^61)^0*(-1)^4 will overflow since they exceed the maximum value for a long. Thus the only term left will be the last term, which is 1. The number is truncated and the last 64 bits consists of all 0’s and 1 at the end.
+
+4. Using -fwrapv will not check for overflow but will wrap around if the result overflows. The program will still run, but the output will still be incorrect.
+
+5. When I run the code in gdb and set disassemble-next-line on, I encounter an error message with the free() function: 
+
+Starting program: /w/fac.2/cs/eggert/bin64/bin/emacs-25.2 -Q -batch -eval '(print (format-time-string "%Y-%m-%d %H:%M:%S %Z" nil (concat (make-string 1000 ?X) "0")))'
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib64/libthread_db.so.1".
+[New Thread 0x7fffe40d2700 (LWP 12651)]
+*** Error in `/w/fac.2/cs/eggert/bin64/bin/emacs-25.2': double free or corruption (!prev): 0x00000000014854e0 ***
+
+When I backtrace the code, I get the following lines:
+#0  0x00007ffff165f1f7 in raise () from /lib64/libc.so.6
+#1  0x00007ffff16608e8 in abort () from /lib64/libc.so.6
+#2  0x00007ffff169ef47 in __libc_message () from /lib64/libc.so.6
+#3  0x00007ffff16a6619 in _int_free () from /lib64/libc.so.6
+#4  0x00000000005d37d8 in tzfree (tz=<optimized out>, tz@entry=0x14854e0) at time_rz.c:194
+#5  0x00000000005d3aeb in tzfree (tz=tz@entry=0x14854e0) at time_rz.c:190
+#6  0x0000000000553d84 in xtzfree (tz=0x14854e0) at editfns.c:139
+#7  format_time_string (format=0x14742b8 "%Y-%m-%d %H:%M:%S %Z", formatlen=20, t=..., 
+    zone=zone@entry=21476132, tmp=<optimized out>, tmp@entry=0x7fffffffd5e0)
+    at editfns.c:2096
+#8  0x0000000000553ead in Fformat_time_string (format_string=<optimized out>, 
+    timeval=<optimized out>, zone=21476132) at editfns.c:2049
+#9  0x000000000055a007 in eval_sub (form=<optimized out>) at eval.c:2178
+#10 0x0000000000559e3d in eval_sub (form=form@entry=17124419) at eval.c:2160
+#11 0x000000000055b92c in Feval (form=17124419, lexical=<optimized out>) at eval.c:1994
+#12 0x00000000005583cf in Ffuncall (nargs=2, args=args@entry=0x7fffffffd8d0) at eval.c:2702
+#13 0x000000000058a9a6 in exec_byte_code (bytestr=<optimized out>, vector=<optimized out>, 
+    maxdepth=<optimized out>, args_template=<optimized out>, nargs=nargs@entry=1, 
+    args=<optimized out>, args@entry=0x7fffffffd8d0) at bytecode.c:880
+#14 0x000000000055a3ac in funcall_lambda (fun=9891764, nargs=nargs@entry=1, 
+    arg_vector=0x7fffffffd8d0, arg_vector@entry=0x7fffffffda90) at eval.c:2863
+#15 0x000000000055821b in Ffuncall (nargs=2, args=args@entry=0x7fffffffda88) at eval.c:2760
+#16 0x000000000058a9a6 in exec_byte_code (bytestr=<optimized out>, vector=<optimized out>, 
+    maxdepth=<optimized out>, args_template=<optimized out>, nargs=nargs@entry=0, 
+    args=<optimized out>, args@entry=0x7fffffffda88) at bytecode.c:880
+#17 0x000000000055a3ac in funcall_lambda (fun=9868740, nargs=nargs@entry=0, 
+
+I used the command “info locals” to see what is stored in the local variables, and I see that the strings overflow when they are copied by the function strcpy. With the backtrace, I saw that there is an error in time_rz.c, which is in the lib directory. I looked into the source code and find the lib directory to open up time_rz.c and analyzed time_zonet’s allocation:
+timezone_t
+tzalloc (char const *name)
+{
+  size_t name_size = name ? strlen (name) + 1 : 0;
+  size_t abbr_size = name_size < ABBR_SIZE_MIN ? ABBR_SIZE_MIN : name_size + 1;
+  timezone_t tz = malloc (offsetof (struct tm_zone, abbrs) + abbr_size);
+  if (tz)
+    {
+      tz->next = NULL;
+#if HAVE_TZNAME && !HAVE_TM_ZONE
+      tz->tzname_copy[0] = tz->tzname_copy[1] = NULL;
+#endif
+      tz->tz_is_set = !!name;
+      tz->abbrs[0] = '\0';
+      if (name)
+        extend_abbrs (tz->abbrs, name, name_size);
+    }
+  return tz;
+}
+
+By analyzing this code, I see that the program is attempting to copy over code, but the memory sources overlap due to overflow. It is attempting to copy over a NULL since the size of the destination array is unable to hold the C string in the source. The strings overlaps in memory.
