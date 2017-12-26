@@ -1,0 +1,16 @@
+2.89
+
+A) (float)x == (float)dx 
+This will always yield 1. When x is casted from an int to a float, it will retain its value. When dx is casted from a d double to a float, it will also retain its value, so the two values will be equal.
+
+B) dx - dy == (double)(x-y)
+This will not always yield 1. If x is TMax and y is a negative integer, x-y on the right hand side will overflow and return a negative integer when it should be positive since we are using -fwrapv. When casting it to a double, it will retain its incorrect value that is not equal to subtracting the two doubles on the left hand side.
+
+C) (dx + dy) + dz == dx + (dy + dz)
+This will always yield 1. Adding three integers casted as doubles is associative because they have more bits than ints, so there would be no rounding errors. 
+
+D) (dx * dy) * dz == dx * (dy * dz)
+This will not always yield 1. If x, y, and z are large positive integers, converting them to doubles and multiplying them with dz will overflow and return a negative number due to -fwrapv since they cannot fit into the maximum bits of a double. There will be rounding errors as both sides will be rounded to different numbers.
+
+E) dx / dx == dz / dz
+This will not always yield 1. If dx = 0.0 and dz is 1.0, the left hand side will be NaN and the right hand side will be 1.0. This will return false since NaN is not equal to any number.	
