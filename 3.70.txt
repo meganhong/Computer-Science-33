@@ -1,0 +1,8 @@
+3.70) 
+A) Since this is a union, there can be overlapping offsets for the two structs.
+e1.p = 0, e1.y = 8, e2.x = 0, e2.next = 8
+B) y and next are both 8 bytes long at an offset of 8, so the total number is 16 bytes
+C) Move *next into %rax and its value into %rdx // we know that it is *next and not y because the pointer is dereferenced when moved into %rdx
+Move its value in its location, the pointer to e1.p, since it has an offset of 0, into %rdx 
+Subtract up->e2.next->e1.y from the dereferenced value from above and store into result
+up->e2.x = *((up->e2.next)->e1.p) - (up->e2.next)->e1.y

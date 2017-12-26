@@ -1,0 +1,5 @@
+3.68) Since int t is at an offset of 8, char array[B] holds from 5 to 8 bytes, or 5 <= B <= 8. Long u is stored at position 32, and short S[A] is at an offset of 12, so short S[A] holds from 14 to 20 bytes, or 14 <= 2A <= 20, since a short is two bytes. The last move instruction dictates that long y is stored at an offset of 184, so int x[A][B] holds from 180 to 184 bytes; 180 <= 4*AB <= 184, since an int holds 4 bytes. Solving for these systems of equations, we get:
+5 <= B <= 8
+7 <= A <= 10
+45 <= A*B <= 46
+The only numbers that satisfy all 3 equations are A = 9 and B = 5.
